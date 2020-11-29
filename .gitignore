@@ -14,5 +14,8 @@
 #Config file with credentials
 ipss_config.yaml
 
+#Compiled Binaries
+ip_self_serve
+
 # Dependency directories (remove the comment below to include it)
 # vendor/
