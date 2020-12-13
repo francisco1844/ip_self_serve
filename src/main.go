@@ -6,7 +6,7 @@ import (
         "net/http"
 )
 
-var trivial_password string
+var trivial_password, Pass string
 
 func main() {
 //var trivial_password string
@@ -22,36 +22,34 @@ func main() {
 
         // Echo instance
         e := echo.New()
-
+        
         // Static folders
         e.Static("/css", "css")
 
-
-
-        // Route => handler
-//        e.GET("/", func(c echo.Context) error {
-//                return c.HTML(http.StatusOK, "Hello, World!\n")
-//        })
-
-	e.GET("/", RouteHandler)
-
+        e.GET("/", rootHandler)
+//        e.GET("/matchPass", simpleMatch)
         // Start server
         e.Logger.Fatal(e.Start(":1323"))
 }
 
-func RouteHandler(c echo.Context) error {
+func rootHandler(c echo.Context) error {
+
 	uname := c.FormValue("username")
-	pass := c.FormValue("password")
-	hash := c.FormValue("hash")
+	Pass = c.FormValue("password")
+//	hash := c.FormValue("hash")
 	if uname != "" {
-		if pass == trivial_password {
-			ip := c.RealIP()
-			return c.HTML(http.StatusOK, LoginHTML + ip + hash)
-		} else {
-			fmt.Println("Simple password did not match")
-		}
+		matchPass(c)
 	} else {
-		fmt.Println("Username cannot be blank")
+		return c.HTML(http.StatusOK, LoginHTML + "Username cannot be blank")
 	}
-	return c.HTML(http.StatusOK, LoginHTML)
+	return c.HTML(http.StatusOK, "<br>")
+}
+
+func matchPass(c echo.Context) error {
+	if Pass == trivial_password {
+   		ip := c.RealIP()
+    		return c.HTML(http.StatusOK, LoginHTML + "<br> The IP Address is " + ip)
+    	} else {
+    		return c.HTML(http.StatusOK, LoginHTML + "<br> The simple password did not match")
+	}
 }

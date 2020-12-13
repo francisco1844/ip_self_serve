@@ -19,6 +19,6 @@ display: block
 <br class="clear" />
 <br />
 <input type="submit" value="submit" />
-<input type="button" class="floatright" value="Cancel" /><br class="clear"/>
+<input type="button" class="floatright" value="Cancel" action="/" /><br class="clear"/>
 </form>
 `
