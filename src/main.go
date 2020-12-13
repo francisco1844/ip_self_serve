@@ -23,6 +23,10 @@ func main() {
         // Echo instance
         e := echo.New()
 
+        // Static folders
+        e.Static("/css", "css")
+
+
 
         // Route => handler
 //        e.GET("/", func(c echo.Context) error {
