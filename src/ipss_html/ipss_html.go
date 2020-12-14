@@ -1,6 +1,7 @@
-package main
+package ipss_html
 
-var LoginHTML = `
+func HTMLroot() string {
+	return `
 <style>
 label{
 width: 6em;
@@ -12,7 +13,7 @@ display: block
 </style>
 
 <h2>IP Self Service</h2>
-<form action="/response" method=post>
+<form action="/validate" method=post>
 <label for="username">Username:</label>                   <input type="text" name="username" /><br/>
 <label for="password">Password: </label>                  <input type="text" name="password" /><br/>
 <label for="trivial_password">Trivial Password: </label>  <input type="text" name="email" /><br/>
@@ -22,3 +23,4 @@ display: block
 <input type="button" class="floatright" value="Cancel"  /><br class="clear"/>
 </form>
 `
+}

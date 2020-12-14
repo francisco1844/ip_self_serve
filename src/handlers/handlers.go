@@ -2,15 +2,21 @@ package handlers
 
 import (
 	"fmt"
+	"ip_self_serve/src/ipss_html"
 	"net/http"
 
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
 )
 
-var ypass, ytrivial_password, yuser string
+func RootHandler(c echo.Context) error {
+	return c.HTML(http.StatusOK, ipss_html.HTMLroot())
 
-func rootHandler(c echo.Context) error {
+}
+
+func ValidateHandler(c echo.Context) error {
+
+	var ypass, ytrivial_password, yuser string
 	viper.SetConfigName("ipss_config") // name of config file (without extension)
 	viper.AddConfigPath("$HOME/")      // path to config, call multiple times to add many search paths
 	viper.AddConfigPath(".")           // optionally look for config in the working directory
@@ -19,24 +25,41 @@ func rootHandler(c echo.Context) error {
 		panic(fmt.Errorf("Fatal error reading config file: %s \n", err))
 	}
 	ytrivial_password = viper.Get("trivial_password").(string)
-	ypassword = viper.Get("password").(string)
+	ypass = viper.Get("password").(string)
 	yuser = viper.Get("user").(string)
 
 	uname := c.FormValue("username")
-	Pass = c.FormValue("password")
-	if uname != "" {
-		matchPass(c)
-	} else {
-		return c.HTML(http.StatusOK, LoginHTML+"Username cannot be blank")
-	}
-	return c.HTML(http.StatusOK, "<br>")
+	pass := c.FormValue("password")
+	trivial := c.FormValue("trivial_password")
+	return c.HTML(http.StatusOK, validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname))
+
 }
 
+func validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname string) string {
+	var returnHTML string
+	if ytrivial_password == trivial && yuser == uname && ypass == pass {
+		returnHTML = "worked"
+	} else {
+		returnHTML = "failed"
+	}
+
+	return returnHTML
+
+}
+
+/*
 func matchPass(c echo.Context) error {
-	if Pass == password {
+	if pass == password {
 		ip := c.RealIP()
 		return c.HTML(http.StatusOK, LoginHTML+"<br> The IP Address is "+ip)
 	} else {
 		return c.HTML(http.StatusOK, LoginHTML+"<br> The simple password did not match")
 	}
 }
+
+	if uname != "" {
+		matchPass(c)
+	} else {
+
+	}
+*/
