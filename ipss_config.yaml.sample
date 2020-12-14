@@ -1,1 +1,5 @@
+# user / password will eventually be a list
+# having as single variable for testing
 trivial_password: <simple_password_here>
+user:<test user>
+password:<test password>
