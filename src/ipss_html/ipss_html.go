@@ -16,7 +16,7 @@ display: block
 <form action="/validate" method=post>
 <label for="username">Username:</label>                   <input type="text" name="username" /><br/>
 <label for="password">Password: </label>                  <input type="text" name="password" /><br/>
-<label for="trivial_password">Trivial Password: </label>  <input type="text" name="email" /><br/>
+<label for="trivial_password">Trivial Password: </label>  <input type="text" name="trivial_password" /><br/>
 <br class="clear" />
 <br />
 <input type="submit" value="submit" />
