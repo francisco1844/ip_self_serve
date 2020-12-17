@@ -31,14 +31,15 @@ func ValidateHandler(c echo.Context) error {
 	uname := c.FormValue("username")
 	pass := c.FormValue("password")
 	trivial := c.FormValue("trivial_password")
-	return c.HTML(http.StatusOK, validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname))
+	return c.HTML(http.StatusOK, validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname, c))
 
 }
 
-func validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname string) string {
+func validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname string,c echo.Context) string {
 	var returnHTML string
 	if ytrivial_password == trivial && yuser == uname && ypass == pass {
-		returnHTML = "worked"
+		ip := c.RealIP()
+		returnHTML = fmt.Sprintf("<br> The IP Address is ", ip)
 	} else {
 		returnHTML = "failed"
 	}
@@ -46,20 +47,3 @@ func validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname string)
 	return returnHTML
 
 }
-
-/*
-func matchPass(c echo.Context) error {
-	if pass == password {
-		ip := c.RealIP()
-		return c.HTML(http.StatusOK, LoginHTML+"<br> The IP Address is "+ip)
-	} else {
-		return c.HTML(http.StatusOK, LoginHTML+"<br> The simple password did not match")
-	}
-}
-
-	if uname != "" {
-		matchPass(c)
-	} else {
-
-	}
-*/
