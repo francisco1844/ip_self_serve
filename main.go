@@ -1,7 +1,7 @@
 package main
 
 import (
-	"ip_self_serve/src/handlers"
+	"ip_self_serve/handlers"
 
 	"github.com/labstack/echo/v4"
 )

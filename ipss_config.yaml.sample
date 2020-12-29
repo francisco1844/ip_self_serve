@@ -1,5 +1,6 @@
 # user / password will eventually be a list
 # having as single variable for testing
-trivial_password: <simple_password_here>
-user:<test user>
-password:<test password>
+trivial_password: <simple_password_here> #This will eventually be for a dynamic password - for now static while testing
+user: <test user>
+password: <test password>
+csv: <file with full path>
