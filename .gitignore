@@ -1,6 +1,9 @@
 # Test binary, built with `go test -c`
 *.test
 
+# vi / vim swap files
+*.swp
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 
@@ -8,4 +11,4 @@
 ipss_config.yaml
 
 #Compiled Binaries
-ip_self_serve
+Ipss

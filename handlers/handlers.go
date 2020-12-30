@@ -8,6 +8,7 @@ import (
 	"encoding/csv"
 	"log"
 	"os"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
@@ -22,36 +23,55 @@ func RootHandler(c echo.Context) error {
 
 func ValidateHandler(c echo.Context) error {
 
-	var ypass, ytrivial_password, yuser string
-	viper_path()
-	ytrivial_password = viper.Get("trivial_password").(string)
-	ypass = viper.Get("password").(string)
-	yuser = viper.Get("user").(string)
+	var ypass, ytrivial_password_format, returnHTML string
 
 	uname = c.FormValue("username")
 	pass := c.FormValue("password")
 	trivial := c.FormValue("trivial_password")
-	return c.HTML(http.StatusOK, validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname, c))
+	viper_path()
+	ytrivial_password_format = viper.GetString("trivial_password")
+	ypass = viper.GetString("users." + uname + ".password")
+	computed_trivial := trivial_password(ytrivial_password_format)
+	if trivial != computed_trivial {
+		returnHTML = "Invalid trivial password - got " + trivial + " computed " + computed_trivial
+	} else if ypass == "" {
+		returnHTML = ipss_html.HTMLfailed()
+	} else {
+		returnHTML = validate_vars(ypass, uname, pass, uname, c)
+	}
+
+	return c.HTML(http.StatusOK, returnHTML)
 
 }
 
-func validate_vars(ypass, ytrivial_password, yuser, pass, trivial, uname string, c echo.Context) string {
+func validate_vars(ypass, yuser, pass, uname string, c echo.Context) string {
 	var returnHTML string
 	viper_path()
 	csvname := viper.Get("csv").(string)
 
-	if ytrivial_password == trivial && yuser == uname && ypass == pass {
+	if yuser == uname && ypass == pass {
 		ip = c.RealIP()
 		write_csv(uname, ip, csvname)
-		returnHTML = fmt.Sprintf("<br> The IP Address is ", ip)
+		returnHTML = ipss_html.HTMLvalidated()
 	} else {
-		returnHTML = "failed"
+		returnHTML = ipss_html.HTMLfailed()
 	}
 
 	return returnHTML
 
 }
 
+func trivial_password(format string) string {
+	var returnVar string
+	switch format {
+	case "dow":
+		dow := time.Now().Weekday()
+		returnVar = dow.String()[0:3]
+	default:
+		returnVar = "Invalid format"
+	}
+	return returnVar
+}
 func write_csv(uname_csv, ip_csv, csvname string) {
 	ipData := [][]string{
 		{uname_csv, ip_csv},
