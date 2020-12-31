@@ -56,3 +56,17 @@ Incorrect user or password<p>
 </html> 
 `
 }
+
+func HTMLfailedtrivial() string {
+	return `
+<!DOCTYPE html>
+<html>
+<body>
+
+Invalid trivial password<p>
+<a href="/">Try again</a>
+
+</body>
+</html> 
+`
+}

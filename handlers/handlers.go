@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 )
 
 var uname, ip string
@@ -25,31 +26,33 @@ func ValidateHandler(c echo.Context) error {
 
 	var ypass, ytrivial_password_format, returnHTML string
 
-	uname = c.FormValue("username")
+	uname := c.FormValue("username")
 	pass := c.FormValue("password")
 	trivial := c.FormValue("trivial_password")
+
 	viper_path()
-	ytrivial_password_format = viper.GetString("trivial_password")
+
 	ypass = viper.GetString("users." + uname + ".password")
+	ytrivial_password_format = viper.GetString("trivial_password")
 	computed_trivial := trivial_password(ytrivial_password_format)
 	if trivial != computed_trivial {
-		returnHTML = "Invalid trivial password - got " + trivial + " computed " + computed_trivial
+		returnHTML = ipss_html.HTMLfailedtrivial()
 	} else if ypass == "" {
 		returnHTML = ipss_html.HTMLfailed()
 	} else {
-		returnHTML = validate_vars(ypass, uname, pass, uname, c)
+		returnHTML = validate_vars(ypass, pass, uname, c)
 	}
 
 	return c.HTML(http.StatusOK, returnHTML)
 
 }
 
-func validate_vars(ypass, yuser, pass, uname string, c echo.Context) string {
+func validate_vars(ypass, pass, uname string, c echo.Context) string {
 	var returnHTML string
 	viper_path()
-	csvname := viper.Get("csv").(string)
+	csvname := viper.GetString("csv")
 
-	if yuser == uname && ypass == pass {
+	if CheckPasswordHash(pass, ypass) {
 		ip = c.RealIP()
 		write_csv(uname, ip, csvname)
 		returnHTML = ipss_html.HTMLvalidated()
@@ -59,6 +62,11 @@ func validate_vars(ypass, yuser, pass, uname string, c echo.Context) string {
 
 	return returnHTML
 
+}
+
+func CheckPasswordHash(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func trivial_password(format string) string {
