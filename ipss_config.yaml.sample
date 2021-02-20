@@ -1,1 +1,8 @@
-trivial_password: <simple_password_here>
+# having as single variable for testing
+trivial_password: <simple_password_here> #This will eventually be for a dynamic password - for now static while testing
+users:
+  - user1: 
+    password: pass
+  - user2:
+    password: pass2
+csv: <file with full path>
