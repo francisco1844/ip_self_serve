@@ -18,7 +18,7 @@ display: block
 <form action="/validate" method=post>
 <label for="username">Username:</label>                   <input type="text" 		name="username" /><br/>
 <label for="password">Password: </label>                  <input type="password" 	name="password" /><br/>
-<label for="trivial_password">Trivial Password: </label>  <input type="password"	name="trivial_password" /><br/>
+<label for="trivial_password">Dynamic Password: </label>  <input type="password"	name="dynamic_password" /><br/>
 <br class="clear" />
 <br />
 <input type="submit" value="submit" />
@@ -57,13 +57,13 @@ Incorrect user or password<p>
 `
 }
 
-func HTMLfailedtrivial() string {
+func HTMLfailed_dynamic() string {
 	return `
 <!DOCTYPE html>
 <html>
 <body>
 
-Invalid trivial password<p>
+Invalid dynamic password<p>
 <a href="/">Try again</a>
 
 </body>

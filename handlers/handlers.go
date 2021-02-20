@@ -24,30 +24,32 @@ func RootHandler(c echo.Context) error {
 
 func ValidateHandler(c echo.Context) error {
 
-	var ypass, ytrivial_password_format, returnHTML string
+	var ypass, ydynamic_password_format, returnHTML string
 
-	uname := c.FormValue("username")
-	pass := c.FormValue("password")
-	trivial := c.FormValue("trivial_password")
+	form_name := c.FormValue("username")
+	form_pass := c.FormValue("password")
+	dynamic := c.FormValue("dynamic_password")
 
 	viper_path()
 
 	ypass = viper.GetString("users." + uname + ".password")
-	ytrivial_password_format = viper.GetString("trivial_password")
-	computed_trivial := trivial_password(ytrivial_password_format)
-	if trivial != computed_trivial {
-		returnHTML = ipss_html.HTMLfailedtrivial()
+	ydynamic_password_format = viper.GetString("dynamic_password")
+	computed_dynamic := dynamic_password(ydynamic_password_format)
+	//	fmt.Println("Computed: ", computed_dynamic)
+	//	fmt.Println("Submited: ", dynamic)
+	if dynamic != computed_dynamic {
+		returnHTML = ipss_html.HTMLfailed_dynamic()
 	} else if ypass == "" {
 		returnHTML = ipss_html.HTMLfailed()
 	} else {
-		returnHTML = validate_vars(ypass, pass, uname, c)
+		returnHTML = validate_vars(ypass, form_pass, form_name, c)
 	}
 
 	return c.HTML(http.StatusOK, returnHTML)
 
 }
 
-func validate_vars(ypass, pass, uname string, c echo.Context) string {
+func validate_vars(ypass, pass, name string, c echo.Context) string {
 	var returnHTML string
 	viper_path()
 	csvname := viper.GetString("csv")
@@ -69,7 +71,7 @@ func CheckPasswordHash(password, hash string) bool {
 	return err == nil
 }
 
-func trivial_password(format string) string {
+func dynamic_password(format string) string {
 	var returnVar string
 	switch format {
 	case "dow":
