@@ -1,8 +1,9 @@
-# having as single variable for testing
-trivial_password: <simple_password_here> #This will eventually be for a dynamic password - for now static while testing
+#Currently only support a dynamic password of day of the week like Mon, Tue...
+dynamic_password: dow
+
 users:
   - user1: 
-    password: pass
+    password: <bcrypt password>
   - user2:
-    password: pass2
+    password: <bcrypt password>
 csv: <file with full path>
