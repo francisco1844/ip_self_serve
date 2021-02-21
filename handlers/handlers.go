@@ -31,8 +31,8 @@ func ValidateHandler(c echo.Context) error {
 	dynamic := c.FormValue("dynamic_password")
 
 	viper_path()
-
-	ypass = viper.GetString("users." + uname + ".password")
+	ypass = viper.GetString("users." + form_name + ".password")
+	// fmt.Println("Form user:", form_name, " - Yaml password (if user matched):", ypass)
 	ydynamic_password_format = viper.GetString("dynamic_password")
 	computed_dynamic := dynamic_password(ydynamic_password_format)
 	//	fmt.Println("Computed: ", computed_dynamic)
@@ -42,23 +42,24 @@ func ValidateHandler(c echo.Context) error {
 	} else if ypass == "" {
 		returnHTML = ipss_html.HTMLfailed()
 	} else {
-		returnHTML = validate_vars(ypass, form_pass, form_name, c)
+		returnHTML = validate_vars(form_name, ypass, form_pass, form_name, c)
 	}
 
 	return c.HTML(http.StatusOK, returnHTML)
 
 }
 
-func validate_vars(ypass, pass, name string, c echo.Context) string {
+func validate_vars(user, ypass, pass, name string, c echo.Context) string {
 	var returnHTML string
 	viper_path()
 	csvname := viper.GetString("csv")
 
 	if CheckPasswordHash(pass, ypass) {
 		ip = c.RealIP()
-		write_csv(uname, ip, csvname)
+		write_csv(user, ip, csvname)
 		returnHTML = ipss_html.HTMLvalidated()
 	} else {
+		// fmt.Println("Hash match hfailed")
 		returnHTML = ipss_html.HTMLfailed()
 	}
 
