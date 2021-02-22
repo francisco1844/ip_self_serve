@@ -11,4 +11,8 @@
 ipss_config.yaml
 
 #Compiled Binaries
+#from go build
 ip_self_serve
+
+#from make build
+Ipss

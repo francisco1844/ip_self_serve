@@ -14,7 +14,7 @@ func main() {
 	e.Static("/css", "css")
 
 	e.GET("/", handlers.RootHandler)
-	e.POST("/validate", handlers.ValidateHandler)
+	e.POST("/validate", handlers.ValidateHandler, handlers.IPRateLimit())
 	// Start server
 	e.Logger.Fatal(e.Start(":1323"))
 }
