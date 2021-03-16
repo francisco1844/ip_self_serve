@@ -16,3 +16,6 @@ ip_self_serve
 
 #from make build
 Ipss
+
+#from bsdbuild
+Ipss-freebsd
