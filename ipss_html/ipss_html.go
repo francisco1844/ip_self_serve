@@ -1,7 +1,11 @@
+// ipss_html provides HTML templates for the IP Self Serve web interface.
 package ipss_html
 
-func HTMLroot() string {
-	return `
+// HTMLroot returns the login form. extraFields is injected HTML for second-factor inputs.
+func HTMLroot(extraFields string) string {
+	return `<!DOCTYPE html>
+<html>
+<head>
 <style>
 label{
 width: 6em;
@@ -11,62 +15,36 @@ margin-right: 0.5em;
 display: block
 }
 </style>
-<!DOCTYPE html>
-<html>
+</head>
 <body>
 <h2>IP Self Service</h2>
-<form action="/validate" method=post>
-<label for="username">Username:</label>                   <input type="text" 		name="username" /><br/>
-<label for="password">Password: </label>                  <input type="password" 	name="password" /><br/>
-<label for="trivial_password">Dynamic Password: </label>  <input type="password"	name="dynamic_password" /><br/>
+<form action="/validate" method="post">
+<label for="username">Username:</label><input type="text" name="username" /><br/>
+<label for="password">Password:</label><input type="password" name="password" /><br/>
+` + extraFields + `
 <br class="clear" />
 <br />
-<input type="submit" value="submit" />
-<input type="button" class="floatright" value="Cancel"  /><br class="clear"/>
+<input type="submit" value="Submit" />
 </form>
 </body>
-</html> 
-`
+</html>`
 }
 
 func HTMLvalidated() string {
-	return `
-<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html>
 <body>
-
-IP succesfully captured<b>
-
-
+<p>IP successfully captured.</p>
 </body>
-</html> 
-`
+</html>`
 }
 
 func HTMLfailed() string {
-	return `
-<!DOCTYPE html>
+	return `<!DOCTYPE html>
 <html>
 <body>
-
-Incorrect user or password<p>
+<p>Authentication failed.</p>
 <a href="/">Try again</a>
-
 </body>
-</html> 
-`
-}
-
-func HTMLfailed_dynamic() string {
-	return `
-<!DOCTYPE html>
-<html>
-<body>
-
-Invalid dynamic password<p>
-<a href="/">Try again</a>
-
-</body>
-</html> 
-`
+</html>`
 }

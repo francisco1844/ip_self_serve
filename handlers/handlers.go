@@ -1,50 +1,63 @@
+// handlers implements HTTP handlers for IP Self Serve authentication and IP capture.
 package handlers
 
 import (
-	"fmt"
-	"ip_self_serve/ipss_html"
-	"net/http"
-	"strconv"
-
 	"encoding/csv"
+	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"regexp"
+	"strconv"
+	"strings"
+	"sync"
 	"time"
 
-	"github.com/labstack/echo/v4"
-	"github.com/spf13/viper"
-	"golang.org/x/crypto/bcrypt"
+	"ip_self_serve/auth"
+	"ip_self_serve/ipss_html"
 
+	"github.com/labstack/echo/v4"
 	"github.com/ulule/limiter/v3"
 	"github.com/ulule/limiter/v3/drivers/store/memory"
+	"golang.org/x/crypto/bcrypt"
 )
 
-var uname, ip string
+// AppConfig holds application configuration loaded once at startup.
+type AppConfig struct {
+	Users        map[string]UserConfig
+	CSVPath      string
+	SecondFactor auth.SecondFactor
+	TOTPSecrets  map[string]string
+}
+
+// UserConfig holds per-user configuration.
+type UserConfig struct {
+	PasswordHash string
+	TOTPSecret   string
+}
 
 var (
-	ipRateLimiter *limiter.Limiter
-	store         limiter.Store
+	csvMu         sync.Mutex
+	validUsername  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
 )
 
 func IPRateLimit() echo.MiddlewareFunc {
-	// 1. Configure
 	rate := limiter.Rate{
 		Period: 2 * time.Second,
 		Limit:  1,
 	}
-	store = memory.NewStore()
-	ipRateLimiter = limiter.New(store, rate)
+	store := memory.NewStore()
+	ipRateLimiter := limiter.New(store, rate)
 
-	// 2. Return middleware handler
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) (err error) {
+		return func(c echo.Context) error {
 			ip := c.RealIP()
 			limiterCtx, err := ipRateLimiter.Get(c.Request().Context(), ip)
 			if err != nil {
 				log.Printf("IPRateLimit - ipRateLimiter.Get - err: %v, %s on %s", err, ip, c.Request().URL)
 				return c.JSON(http.StatusInternalServerError, echo.Map{
 					"success": false,
-					"message": err,
+					"message": fmt.Sprintf("rate limiter error: %v", err),
 				})
 			}
 
@@ -61,105 +74,91 @@ func IPRateLimit() echo.MiddlewareFunc {
 				})
 			}
 
-			// log.Printf("%s request continue", c.RealIP())
 			return next(c)
 		}
 	}
 }
 
-func RootHandler(c echo.Context) error {
-	return c.HTML(http.StatusOK, ipss_html.HTMLroot())
-
-}
-
-func ValidateHandler(c echo.Context) error {
-
-	var ypass, ydynamic_password_format, returnHTML string
-
-	form_name := c.FormValue("username")
-	form_pass := c.FormValue("password")
-	dynamic := c.FormValue("dynamic_password")
-
-	viper_path()
-	ypass = viper.GetString("users." + form_name + ".password")
-	// fmt.Println("Form user:", form_name, " - Yaml password (if user matched):", ypass)
-	ydynamic_password_format = viper.GetString("dynamic_password")
-	computed_dynamic := dynamic_password(ydynamic_password_format)
-	//	fmt.Println("Computed: ", computed_dynamic)
-	//	fmt.Println("Submited: ", dynamic)
-	if dynamic != computed_dynamic {
-		returnHTML = ipss_html.HTMLfailed_dynamic()
-	} else if ypass == "" {
-		returnHTML = ipss_html.HTMLfailed()
-	} else {
-		returnHTML = validate_vars(form_name, ypass, form_pass, form_name, c)
+// RootHandler serves the login form with the configured second factor fields.
+func RootHandler(cfg *AppConfig) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		extraFields := cfg.SecondFactor.FormFields()
+		return c.HTML(http.StatusOK, ipss_html.HTMLroot(extraFields))
 	}
-
-	return c.HTML(http.StatusOK, returnHTML)
-
 }
 
-func validate_vars(user, ypass, pass, name string, c echo.Context) string {
-	var returnHTML string
-	viper_path()
-	csvname := viper.GetString("csv")
+// ValidateHandler authenticates the user and captures their IP.
+func ValidateHandler(cfg *AppConfig) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		formName := c.FormValue("username")
+		formPass := c.FormValue("password")
 
-	if CheckPasswordHash(pass, ypass) {
-		ip = c.RealIP()
-		write_csv(user, ip, csvname)
-		returnHTML = ipss_html.HTMLvalidated()
-	} else {
-		// fmt.Println("Hash match hfailed")
-		returnHTML = ipss_html.HTMLfailed()
+		if !validUsername.MatchString(formName) {
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+
+		user, ok := cfg.Users[formName]
+		if !ok || user.PasswordHash == "" {
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+
+		// Validate second factor before password (fail fast on MFA)
+		valid, err := cfg.SecondFactor.Validate(c, formName, cfg.TOTPSecrets)
+		if err != nil {
+			log.Printf("second factor error for user %q: %v", formName, err)
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+		if !valid {
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+
+		if !checkPasswordHash(formPass, user.PasswordHash) {
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+
+		ip := c.RealIP()
+		if err := writeCSV(formName, ip, cfg.CSVPath); err != nil {
+			log.Printf("CSV write error: %v", err)
+			return c.HTML(http.StatusInternalServerError, ipss_html.HTMLfailed())
+		}
+
+		return c.HTML(http.StatusOK, ipss_html.HTMLvalidated())
 	}
-
-	return returnHTML
-
 }
 
-func CheckPasswordHash(password, hash string) bool {
+func checkPasswordHash(password, hash string) bool {
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
 }
 
-func dynamic_password(format string) string {
-	var returnVar string
-	switch format {
-	case "dow":
-		dow := time.Now().Weekday()
-		returnVar = dow.String()[0:3]
-	default:
-		returnVar = "Invalid format"
+// sanitizeCSVField prevents CSV injection by prefixing dangerous characters.
+func sanitizeCSVField(s string) string {
+	if len(s) > 0 {
+		switch s[0] {
+		case '=', '+', '-', '@':
+			return "'" + s
+		}
 	}
-	return returnVar
+	return s
 }
-func write_csv(uname_csv, ip_csv, csvname string) {
-	ipData := [][]string{
-		{uname_csv, ip_csv},
-	}
 
-	csvFile, err := os.Create(csvname)
+func writeCSV(username, ip, csvPath string) error {
+	csvMu.Lock()
+	defer csvMu.Unlock()
 
+	f, err := os.OpenFile(csvPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		log.Fatalf("failed creating file: %s", err)
+		return fmt.Errorf("failed opening CSV file: %w", err)
 	}
-	defer csvFile.Close()
+	defer f.Close()
 
-	csvwriter := csv.NewWriter(csvFile)
-
-	for _, ipRow := range ipData {
-		_ = csvwriter.Write(ipRow)
+	w := csv.NewWriter(f)
+	if err := w.Write([]string{
+		sanitizeCSVField(strings.TrimSpace(username)),
+		sanitizeCSVField(strings.TrimSpace(ip)),
+	}); err != nil {
+		return fmt.Errorf("failed writing CSV row: %w", err)
 	}
-	csvwriter.Flush()
-
-}
-
-func viper_path() {
-	viper.SetConfigName("ipss_config")                   // name of config file (without extension)
-	viper.AddConfigPath("$HOME/.config/ipss_self_serve") // path to config, call multiple times to add many search paths
-	viper.AddConfigPath(".")                             // optionally look for config in the working directory
-	err := viper.ReadInConfig()                          // Find and read the config file
-	if err != nil {                                      // Handle errors reading the config file
-		panic(fmt.Errorf("Fatal error reading config file: %s \n", err))
-	}
+	w.Flush()
+	return w.Error()
 }

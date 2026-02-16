@@ -1,9 +1,12 @@
-#Currently only support a dynamic password of day of the week like Mon, Tue...
-dynamic_password: dow
+auth:
+  second_factor: "totp"   # "totp" or "none"
 
 users:
-  - user1: 
-    password: <bcrypt password>
-  - user2:
-    password: <bcrypt password>
-csv: <file with full path>
+  user1:
+    password: <bcrypt hash>
+    totp_secret: <TOTP secret from --enroll>
+  user2:
+    password: <bcrypt hash>
+    totp_secret: <TOTP secret from --enroll>
+
+csv: /path/to/output.csv
