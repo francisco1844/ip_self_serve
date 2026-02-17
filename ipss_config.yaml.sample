@@ -10,3 +10,9 @@ users:
     totp_secret: <TOTP secret from --enroll>
 
 csv: /path/to/output.csv
+
+# Optional: trusted reverse proxy CIDRs for X-Forwarded-For extraction.
+# If omitted, IP is taken directly from the network connection.
+# trusted_proxies:
+#   - "10.0.0.0/8"
+#   - "172.16.0.0/12"

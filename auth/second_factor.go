@@ -3,10 +3,13 @@ package auth
 
 import (
 	"fmt"
+	"regexp"
 
 	"github.com/labstack/echo/v4"
 	"github.com/pquerna/otp/totp"
 )
+
+var validTOTPCode = regexp.MustCompile(`^[0-9]{6}$`)
 
 // SecondFactor defines the interface for second-factor authentication.
 type SecondFactor interface {
@@ -36,6 +39,9 @@ func (t *TOTPFactor) FormFields() string {
 func (t *TOTPFactor) Validate(c echo.Context, username string, secrets map[string]string) (bool, error) {
 	code := c.FormValue("totp_code")
 	if code == "" {
+		return false, nil
+	}
+	if !validTOTPCode.MatchString(code) {
 		return false, nil
 	}
 	secret, ok := secrets[username]

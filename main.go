@@ -6,6 +6,8 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"path/filepath"
 
@@ -40,12 +42,40 @@ func main() {
 	cfg := loadConfig()
 
 	e := echo.New()
+
+	// Configure IP extraction based on trusted proxies
+	trustedProxies := viper.GetStringSlice("trusted_proxies")
+	if len(trustedProxies) > 0 {
+		var opts []echo.TrustOption
+		for _, cidr := range trustedProxies {
+			_, ipNet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				log.Fatalf("Invalid trusted_proxies CIDR %q: %v", cidr, err)
+			}
+			opts = append(opts, echo.TrustIPRange(ipNet))
+		}
+		e.IPExtractor = echo.ExtractIPFromXFFHeader(opts...)
+	} else {
+		e.IPExtractor = echo.ExtractIPDirect()
+	}
 	e.Use(middleware.Recover())
 	e.Use(middleware.Logger())
-	e.Use(middleware.Secure())
+	e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+		XSSProtection:         "1; mode=block",
+		ContentTypeNosniff:    "nosniff",
+		XFrameOptions:         "SAMEORIGIN",
+		HSTSMaxAge:            31536000,
+		ContentSecurityPolicy: "default-src 'self'; style-src 'self' 'unsafe-inline'",
+	}))
+	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
+		TokenLookup:    "form:csrf_token",
+		CookieSameSite: http.SameSiteStrictMode,
+		CookieHTTPOnly: true,
+		CookieSecure:   true,
+	}))
 	e.Use(middleware.BodyLimit("1M"))
 
-	e.GET("/", handlers.RootHandler(cfg))
+	e.GET("/", handlers.RootHandler(cfg), handlers.IPRateLimit())
 	e.POST("/validate", handlers.ValidateHandler(cfg), handlers.IPRateLimit())
 
 	e.Logger.Fatal(e.Start(":1180"))
@@ -113,18 +143,18 @@ func bootstrapConfig() {
 		return // already exists
 	}
 
-	if err := os.MkdirAll(dir, 0750); err != nil {
+	if err := os.MkdirAll(dir, 0700); err != nil {
 		log.Printf("Warning: could not create config directory %s: %v", dir, err)
 		return
 	}
 
-	if err := os.WriteFile(dest, sampleConfig, 0640); err != nil {
+	if err := os.WriteFile(dest, sampleConfig, 0600); err != nil {
 		log.Printf("Warning: could not write sample config to %s: %v", dest, err)
 	}
 }
 
 func runHashPassword(password string) {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 13)
 	if err != nil {
 		log.Fatalf("Failed to generate bcrypt hash: %v", err)
 	}

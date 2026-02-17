@@ -39,7 +39,61 @@ type UserConfig struct {
 var (
 	csvMu         sync.Mutex
 	validUsername  = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+	authThrottle  = newAccountThrottle(5, 5*time.Minute)
+	// dummyHash is used for constant-time responses when a username doesn't exist.
+	dummyHash     []byte
 )
+
+func init() {
+	h, err := bcrypt.GenerateFromPassword([]byte("dummy-placeholder"), bcrypt.DefaultCost)
+	if err != nil {
+		log.Fatalf("failed to generate dummy bcrypt hash: %v", err)
+	}
+	dummyHash = h
+}
+
+// accountThrottle tracks per-username failed auth attempts.
+type accountThrottle struct {
+	mu       sync.Mutex
+	failures map[string][]time.Time
+	limit    int
+	window   time.Duration
+}
+
+func newAccountThrottle(limit int, window time.Duration) *accountThrottle {
+	return &accountThrottle{
+		failures: make(map[string][]time.Time),
+		limit:    limit,
+		window:   window,
+	}
+}
+
+// isLimited returns true if the username has exceeded the failure limit within the window.
+func (a *accountThrottle) isLimited(username string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	cutoff := time.Now().Add(-a.window)
+	times := a.failures[username]
+
+	// Prune expired entries
+	valid := times[:0]
+	for _, t := range times {
+		if t.After(cutoff) {
+			valid = append(valid, t)
+		}
+	}
+	a.failures[username] = valid
+
+	return len(valid) >= a.limit
+}
+
+// recordFailure records a failed auth attempt for the username.
+func (a *accountThrottle) recordFailure(username string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.failures[username] = append(a.failures[username], time.Now())
+}
 
 func IPRateLimit() echo.MiddlewareFunc {
 	rate := limiter.Rate{
@@ -57,7 +111,7 @@ func IPRateLimit() echo.MiddlewareFunc {
 				log.Printf("IPRateLimit - ipRateLimiter.Get - err: %v, %s on %s", err, ip, c.Request().URL)
 				return c.JSON(http.StatusInternalServerError, echo.Map{
 					"success": false,
-					"message": fmt.Sprintf("rate limiter error: %v", err),
+					"message": "internal server error",
 				})
 			}
 
@@ -83,7 +137,8 @@ func IPRateLimit() echo.MiddlewareFunc {
 func RootHandler(cfg *AppConfig) echo.HandlerFunc {
 	return func(c echo.Context) error {
 		extraFields := cfg.SecondFactor.FormFields()
-		return c.HTML(http.StatusOK, ipss_html.HTMLroot(extraFields))
+		csrfToken, _ := c.Get("csrf").(string)
+		return c.HTML(http.StatusOK, ipss_html.HTMLroot(extraFields, csrfToken))
 	}
 }
 
@@ -99,6 +154,13 @@ func ValidateHandler(cfg *AppConfig) echo.HandlerFunc {
 
 		user, ok := cfg.Users[formName]
 		if !ok || user.PasswordHash == "" {
+			// Run bcrypt against dummy hash to prevent username enumeration via timing.
+			bcrypt.CompareHashAndPassword(dummyHash, []byte(formPass))
+			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
+		}
+
+		if authThrottle.isLimited(formName) {
+			log.Printf("account throttled for user %q from %s", formName, c.RealIP())
 			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
 		}
 
@@ -109,10 +171,13 @@ func ValidateHandler(cfg *AppConfig) echo.HandlerFunc {
 			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
 		}
 		if !valid {
+			authThrottle.recordFailure(formName)
+			log.Printf("second factor validation failed for user %q from %s", formName, c.RealIP())
 			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
 		}
 
 		if !checkPasswordHash(formPass, user.PasswordHash) {
+			authThrottle.recordFailure(formName)
 			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
 		}
 
@@ -133,6 +198,8 @@ func checkPasswordHash(password, hash string) bool {
 
 // sanitizeCSVField prevents CSV injection by prefixing dangerous characters.
 func sanitizeCSVField(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.ReplaceAll(s, "\t", " ")
 	if len(s) > 0 {
 		switch s[0] {
 		case '=', '+', '-', '@':
@@ -146,11 +213,21 @@ func writeCSV(username, ip, csvPath string) error {
 	csvMu.Lock()
 	defer csvMu.Unlock()
 
-	f, err := os.OpenFile(csvPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(csvPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return fmt.Errorf("failed opening CSV file: %w", err)
 	}
 	defer f.Close()
+
+	info, err := f.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to stat CSV file: %w", err)
+	}
+	if info.Mode().Perm()&^os.FileMode(0600) != 0 {
+		if err := f.Chmod(0600); err != nil {
+			return fmt.Errorf("failed to chmod CSV file: %w", err)
+		}
+	}
 
 	w := csv.NewWriter(f)
 	if err := w.Write([]string{
