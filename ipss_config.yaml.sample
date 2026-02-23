@@ -11,6 +11,15 @@ users:
 
 csv: /path/to/output.csv
 
+# Password policy enforced during -enroll.
+# Omit or set to 0/false to use defaults (min_length=8, no character class requirements).
+# password_policy:
+#   min_length: 12
+#   require_upper: true
+#   require_lower: true
+#   require_number: true
+#   require_symbol: true
+
 # Optional: trusted reverse proxy CIDRs for X-Forwarded-For extraction.
 # If omitted, IP is taken directly from the network connection.
 # trusted_proxies:

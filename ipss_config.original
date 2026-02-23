@@ -1,0 +1,6 @@
+users:
+  martin: 
+   password: $2y$12$Ycu/zZOfSX8WIiZTYha/cO6VXz3xgDM7xtmGKQl70OyvyOR7UO0Xi
+
+dynamic_password: dow
+csv: /home/francisco/tmp/user_ip.csv

@@ -181,8 +181,13 @@ func ValidateHandler(cfg *AppConfig) echo.HandlerFunc {
 			return c.HTML(http.StatusUnauthorized, ipss_html.HTMLfailed())
 		}
 
+		comment := c.FormValue("comment")
+		if strings.Contains(comment, ",") {
+			return c.HTML(http.StatusBadRequest, ipss_html.HTMLinvalidComment())
+		}
+
 		ip := c.RealIP()
-		if err := writeCSV(formName, ip, cfg.CSVPath); err != nil {
+		if err := writeCSV(formName, comment, ip, cfg.CSVPath); err != nil {
 			log.Printf("CSV write error: %v", err)
 			return c.HTML(http.StatusInternalServerError, ipss_html.HTMLfailed())
 		}
@@ -209,7 +214,7 @@ func sanitizeCSVField(s string) string {
 	return s
 }
 
-func writeCSV(username, ip, csvPath string) error {
+func writeCSV(username, comment, ip, csvPath string) error {
 	csvMu.Lock()
 	defer csvMu.Unlock()
 
@@ -232,6 +237,7 @@ func writeCSV(username, ip, csvPath string) error {
 	w := csv.NewWriter(f)
 	if err := w.Write([]string{
 		sanitizeCSVField(strings.TrimSpace(username)),
+		sanitizeCSVField(strings.TrimSpace(comment)),
 		sanitizeCSVField(strings.TrimSpace(ip)),
 	}); err != nil {
 		return fmt.Errorf("failed writing CSV row: %w", err)

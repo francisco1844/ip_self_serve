@@ -74,7 +74,7 @@ Configuration structure:
 # Development Notes
 
 - Configuration loaded via Viper from yaml file
-- CSV file is overwritten on each successful authentication (current behavior)
+- CSV file is appended to on each successful authentication (O_APPEND|O_CREATE|O_WRONLY)
 - Dynamic password checked before user credentials
 - All HTML is embedded in Go code (ipss_html package)
 - Rate limiter uses in-memory store

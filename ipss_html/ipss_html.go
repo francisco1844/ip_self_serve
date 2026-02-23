@@ -26,6 +26,7 @@ display: block
 <label for="username">Username:</label><input type="text" name="username" /><br/>
 <label for="password">Password:</label><input type="password" name="password" /><br/>
 ` + extraFields + `
+<label for="comment">Comment:</label><input type="text" name="comment" /><br/>
 <br class="clear" />
 <br />
 <input type="submit" value="Submit" />
@@ -39,6 +40,16 @@ func HTMLvalidated() string {
 <html>
 <body>
 <p>IP successfully captured.</p>
+</body>
+</html>`
+}
+
+func HTMLinvalidComment() string {
+	return `<!DOCTYPE html>
+<html>
+<body>
+<p>Commas are not allowed in the comment field.</p>
+<a href="/">Try again</a>
 </body>
 </html>`
 }
