@@ -65,6 +65,8 @@ Configuration structure:
 
 # Security Features
 
+**CSRF Cookie**: The `tls` config option controls the `Secure` flag on the CSRF cookie. Set `tls: true` when the service is behind HTTPS; leave it `false` (the default) for plain HTTP. Without this, browsers will not send the CSRF cookie over plain HTTP and form submissions will fail with "invalid csrf token".
+
 **Rate Limiting**: Enforced via middleware at 1 request per 2 seconds per IP address. Returns HTTP 429 when limit exceeded. Rate limit headers included in response.
 
 **Dynamic Password**: Additional authentication factor that changes based on time. Currently supports day-of-week format ("Mon", "Tue", etc.). Validated before user credentials.

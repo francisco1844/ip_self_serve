@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/viper"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
+	"gopkg.in/yaml.v3"
 )
 
 //go:embed ipss_config.yaml.sample
@@ -34,8 +35,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Usage:\n")
 		fmt.Fprintf(os.Stderr, "  %s -serve                Start the web server\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s -serve -verbose       Start with request logging enabled\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -enroll <user>        Enroll a user (prompts for password)\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "  %s -enroll <user> -totp  Enroll a user with TOTP setup\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -enroll <user>        Enroll a user (writes to config file)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -enroll <user> -totp  Enroll with TOTP setup\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "  %s -enroll <user> -stdout Print hash to stdout instead of writing to config\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\nConfiguration:\n")
 		fmt.Fprintf(os.Stderr, "  Config file ipss_config.yaml is searched in this order:\n")
 		fmt.Fprintf(os.Stderr, "    1. $HOME/.config/ipss_self_serve/\n")
@@ -45,6 +47,7 @@ func main() {
 
 	enrollUser := flag.String("enroll", "", "enroll")
 	withTOTP := flag.Bool("totp", false, "totp")
+	toStdout := flag.Bool("stdout", false, "stdout")
 	serve := flag.Bool("serve", false, "serve")
 	verbose := flag.Bool("verbose", false, "verbose")
 	flag.Parse()
@@ -52,10 +55,13 @@ func main() {
 	if *withTOTP && *enrollUser == "" {
 		log.Fatal("-totp can only be used with -enroll")
 	}
+	if *toStdout && *enrollUser == "" {
+		log.Fatal("-stdout can only be used with -enroll")
+	}
 
 	switch {
 	case *enrollUser != "":
-		runEnroll(*enrollUser, *withTOTP)
+		runEnroll(*enrollUser, *withTOTP, *toStdout)
 		return
 	case *serve:
 		// fall through to server startup with verbose flag
@@ -73,9 +79,49 @@ func main() {
 		e.HidePort = true
 	}
 
-	// Configure IP extraction based on trusted proxies
+	// Configure IP extraction based on trusted proxies and optional ip_header.
 	trustedProxies := viper.GetStringSlice("trusted_proxies")
-	if len(trustedProxies) > 0 {
+	ipHeader := viper.GetString("ip_header")
+
+	switch {
+	case ipHeader != "" && len(trustedProxies) == 0:
+		log.Fatal("Config error: ip_header requires trusted_proxies to be set")
+
+	case ipHeader != "" && len(trustedProxies) > 0:
+		// Custom extractor: read IP from the configured header when request
+		// arrives from a trusted proxy; fall back to direct connection IP.
+		var trustedNets []*net.IPNet
+		for _, cidr := range trustedProxies {
+			_, ipNet, err := net.ParseCIDR(cidr)
+			if err != nil {
+				log.Fatalf("Invalid trusted_proxies CIDR %q: %v", cidr, err)
+			}
+			trustedNets = append(trustedNets, ipNet)
+		}
+		e.IPExtractor = func(r *http.Request) string {
+			directIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			if directIP == "" {
+				directIP = r.RemoteAddr
+			}
+			ip := net.ParseIP(directIP)
+			if ip != nil {
+				for _, n := range trustedNets {
+					if n.Contains(ip) {
+						if val := strings.TrimSpace(r.Header.Get(ipHeader)); val != "" {
+							// Take the first IP if comma-separated.
+							if i := strings.IndexByte(val, ','); i != -1 {
+								val = strings.TrimSpace(val[:i])
+							}
+							return val
+						}
+						break
+					}
+				}
+			}
+			return directIP
+		}
+
+	case len(trustedProxies) > 0:
 		var opts []echo.TrustOption
 		for _, cidr := range trustedProxies {
 			_, ipNet, err := net.ParseCIDR(cidr)
@@ -85,7 +131,8 @@ func main() {
 			opts = append(opts, echo.TrustIPRange(ipNet))
 		}
 		e.IPExtractor = echo.ExtractIPFromXFFHeader(opts...)
-	} else {
+
+	default:
 		e.IPExtractor = echo.ExtractIPDirect()
 	}
 	e.Use(middleware.Recover())
@@ -97,20 +144,25 @@ func main() {
 		ContentTypeNosniff:    "nosniff",
 		XFrameOptions:         "SAMEORIGIN",
 		HSTSMaxAge:            31536000,
-		ContentSecurityPolicy: "default-src 'self'; style-src 'self' 'unsafe-inline'",
+		ContentSecurityPolicy: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://api.ipify.org",
 	}))
 	e.Use(middleware.CSRFWithConfig(middleware.CSRFConfig{
 		TokenLookup:    "form:csrf_token",
 		CookieSameSite: http.SameSiteStrictMode,
 		CookieHTTPOnly: true,
-		CookieSecure:   true,
+		CookieSecure:   viper.GetBool("tls"),
 	}))
 	e.Use(middleware.BodyLimit("1M"))
 
 	e.GET("/", handlers.RootHandler(cfg), handlers.IPRateLimit())
 	e.POST("/validate", handlers.ValidateHandler(cfg), handlers.IPRateLimit())
 
-	e.Logger.Fatal(e.Start(":1180"))
+	bindAddr := viper.GetString("bind_address")
+	port := viper.GetInt("port")
+	if port == 0 {
+		port = 1180
+	}
+	e.Logger.Fatal(e.Start(fmt.Sprintf("%s:%d", bindAddr, port)))
 }
 
 func loadConfig() *handlers.AppConfig {
@@ -158,6 +210,7 @@ func loadConfig() *handlers.AppConfig {
 		CSVPath:      csvPath,
 		SecondFactor: sf,
 		TOTPSecrets:  totpSecrets,
+		DefaultIP:    viper.GetString("default_ip"),
 	}
 }
 
@@ -259,7 +312,7 @@ func readPassword(prompt string) string {
 	return strings.TrimRight(scanner.Text(), "\r\n")
 }
 
-func runEnroll(username string, withTOTP bool) {
+func runEnroll(username string, withTOTP bool, toStdout bool) {
 	// Load config for password policy; missing config is fine (use defaults).
 	viper.SetConfigName("ipss_config")
 	viper.AddConfigPath(configDir())
@@ -285,10 +338,7 @@ func runEnroll(username string, withTOTP bool) {
 		log.Fatalf("Failed to generate bcrypt hash: %v", err)
 	}
 
-	fmt.Printf("\nAdd to your ipss_config.yaml under users:\n\n")
-	fmt.Printf("  %s:\n", username)
-	fmt.Printf("    password: %s\n", string(hash))
-
+	var totpSecret string
 	if withTOTP {
 		key, err := totp.Generate(totp.GenerateOpts{
 			Issuer:      "IPSelfServe",
@@ -297,8 +347,7 @@ func runEnroll(username string, withTOTP bool) {
 		if err != nil {
 			log.Fatalf("Failed to generate TOTP key: %v", err)
 		}
-		fmt.Printf("    totp_secret: %s\n", key.Secret())
-		fmt.Printf("\nTOTP Secret: %s\n", key.Secret())
+		totpSecret = key.Secret()
 
 		qrFile := fmt.Sprintf("%s_totp_qr.png", username)
 		img, err := key.Image(256, 256)
@@ -316,4 +365,107 @@ func runEnroll(username string, withTOTP bool) {
 		f.Close()
 		fmt.Printf("QR code saved to: %s (scan with authenticator app)\n", qrFile)
 	}
+
+	configFile := viper.ConfigFileUsed()
+	if toStdout || configFile == "" {
+		if configFile == "" && !toStdout {
+			fmt.Println("No config file found; printing to stdout instead.")
+		}
+		fmt.Printf("\nAdd to your ipss_config.yaml under users:\n\n")
+		fmt.Printf("  %s:\n", username)
+		fmt.Printf("    password: %s\n", string(hash))
+		if totpSecret != "" {
+			fmt.Printf("    totp_secret: %s\n", totpSecret)
+			fmt.Printf("\nTOTP Secret: %s\n", totpSecret)
+		}
+		return
+	}
+
+	if err := addUserToConfig(configFile, username, string(hash), totpSecret); err != nil {
+		log.Fatalf("Failed to update config: %v", err)
+	}
+	fmt.Printf("User %q added to %s\n", username, configFile)
+	if totpSecret != "" {
+		fmt.Printf("TOTP Secret: %s\n", totpSecret)
+	}
+}
+
+// addUserToConfig adds a user entry to the YAML config file, preserving
+// comments and formatting via the yaml.Node API.
+func addUserToConfig(path, username, hashStr, totpSecret string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("reading config: %w", err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("parsing config: %w", err)
+	}
+
+	// doc is a Document node; its first child is the top-level mapping.
+	if doc.Kind != yaml.DocumentNode || len(doc.Content) == 0 {
+		return fmt.Errorf("unexpected YAML structure")
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("expected top-level mapping")
+	}
+
+	// Find or create the "users" mapping.
+	var usersMap *yaml.Node
+	for i := 0; i < len(root.Content)-1; i += 2 {
+		if root.Content[i].Value == "users" {
+			usersMap = root.Content[i+1]
+			break
+		}
+	}
+
+	if usersMap == nil {
+		// Add a "users" key with an empty mapping.
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "users"},
+			&yaml.Node{Kind: yaml.MappingNode},
+		)
+		usersMap = root.Content[len(root.Content)-1]
+	}
+
+	if usersMap.Kind != yaml.MappingNode {
+		return fmt.Errorf("'users' is not a mapping")
+	}
+
+	// Check for duplicate user.
+	for i := 0; i < len(usersMap.Content)-1; i += 2 {
+		if usersMap.Content[i].Value == username {
+			return fmt.Errorf("user %q already exists in config", username)
+		}
+	}
+
+	// Build the user's value mapping (password, and optionally totp_secret).
+	userMapping := &yaml.Node{Kind: yaml.MappingNode}
+	userMapping.Content = append(userMapping.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: "password"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: hashStr},
+	)
+	if totpSecret != "" {
+		userMapping.Content = append(userMapping.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "totp_secret"},
+			&yaml.Node{Kind: yaml.ScalarNode, Value: totpSecret},
+		)
+	}
+
+	usersMap.Content = append(usersMap.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: username},
+		userMapping,
+	)
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("marshaling config: %w", err)
+	}
+
+	if err := os.WriteFile(path, out, 0600); err != nil {
+		return fmt.Errorf("writing config: %w", err)
+	}
+	return nil
 }

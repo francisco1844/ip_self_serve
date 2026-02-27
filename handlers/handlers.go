@@ -5,6 +5,7 @@ import (
 	"encoding/csv"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -28,6 +29,7 @@ type AppConfig struct {
 	CSVPath      string
 	SecondFactor auth.SecondFactor
 	TOTPSecrets  map[string]string
+	DefaultIP    string // "connection" (default) or "external"
 }
 
 // UserConfig holds per-user configuration.
@@ -135,10 +137,14 @@ func IPRateLimit() echo.MiddlewareFunc {
 
 // RootHandler serves the login form with the configured second factor fields.
 func RootHandler(cfg *AppConfig) echo.HandlerFunc {
+	defaultIP := cfg.DefaultIP
+	if defaultIP != "external" {
+		defaultIP = "connection"
+	}
 	return func(c echo.Context) error {
 		extraFields := cfg.SecondFactor.FormFields()
 		csrfToken, _ := c.Get("csrf").(string)
-		return c.HTML(http.StatusOK, ipss_html.HTMLroot(extraFields, csrfToken))
+		return c.HTML(http.StatusOK, ipss_html.HTMLroot(extraFields, csrfToken, c.RealIP(), defaultIP))
 	}
 }
 
@@ -186,7 +192,18 @@ func ValidateHandler(cfg *AppConfig) echo.HandlerFunc {
 			return c.HTML(http.StatusBadRequest, ipss_html.HTMLinvalidComment())
 		}
 
-		ip := c.RealIP()
+		connectionIP := c.RealIP()
+		ip := connectionIP
+		if selectedIP := c.FormValue("selected_ip"); selectedIP != "" {
+			if net.ParseIP(selectedIP) != nil {
+				ip = selectedIP
+			} else {
+				log.Printf("invalid selected_ip %q from %s, falling back to connection IP", selectedIP, connectionIP)
+			}
+		}
+		if ip != connectionIP {
+			log.Printf("user %q submitted external IP %s (connection IP: %s)", formName, ip, connectionIP)
+		}
 		if err := writeCSV(formName, comment, ip, cfg.CSVPath); err != nil {
 			log.Printf("CSV write error: %v", err)
 			return c.HTML(http.StatusInternalServerError, ipss_html.HTMLfailed())

@@ -65,6 +65,11 @@ users:
 
 csv: /path/to/output.csv
 
+# Set to true when behind HTTPS (direct TLS or reverse proxy).
+# Marks the CSRF cookie as Secure (browser only sends it over HTTPS).
+# Default: false
+tls: true
+
 # Optional: trusted reverse proxy CIDRs for X-Forwarded-For extraction.
 # If omitted, IP is taken directly from the network connection.
 trusted_proxies:
@@ -98,6 +103,11 @@ The server runs on port 1180 by default.
 - **Do not expose directly to the internet.** This application has no built-in TLS and should only be accessed via a trusted network or behind a reverse proxy with HTTPS.
 - Use a reverse proxy (nginx, Caddy, Traefik, etc.) for TLS termination if accessing remotely.
 
+### TLS / CSRF Cookie
+If the service is accessed over HTTPS (either direct TLS or behind a TLS-terminating reverse proxy), set `tls: true` in the config. This marks the CSRF cookie as `Secure`, so the browser only sends it over HTTPS connections.
+
+When running over plain HTTP (e.g., on a local network without TLS), leave `tls` unset or set it to `false`. Otherwise the browser will not return the CSRF cookie and form submissions will fail with `"invalid csrf token"`.
+
 ### Trusted Proxies
 If running behind a reverse proxy, configure `trusted_proxies` to prevent IP spoofing:
 
@@ -108,6 +118,35 @@ trusted_proxies:
 ```
 
 Without this configuration, the `X-Forwarded-For` header from clients can be easily spoofed. Only configure CIDRs you trust (your proxy's network).
+
+### Custom IP Header
+When behind a zero-trust proxy that sets a proprietary header (e.g., Cloudflare's `CF-Connecting-IP`, Akamai's `True-Client-IP`), use `ip_header` to read the client IP from that header instead of `X-Forwarded-For`:
+
+```yaml
+trusted_proxies:
+  - "173.245.48.0/20"   # Cloudflare IP range
+ip_header: "CF-Connecting-IP"
+```
+
+`ip_header` requires `trusted_proxies` to be set — the header is only trusted when the request arrives from a listed CIDR. If the header is missing or the request is not from a trusted proxy, the direct connection IP is used.
+
+### External IP Detection (VPN/Mesh Deployments)
+
+When users connect through a VPN or mesh network (e.g., ZeroTier), the server sees the VPN tunnel IP instead of the user's public IP. Since the purpose of this app is to capture public IPs for firewall rules, this defeats the goal.
+
+To handle this, the login page uses JavaScript to fetch the user's external IP from `api.ipify.org`. If the external IP differs from the connection IP, both are displayed as radio buttons so the user can choose which to submit. If they match (or the fetch fails), the page behaves identically to before — a single IP is shown.
+
+Configure which IP is pre-selected when the two differ:
+
+```yaml
+# Pre-select the external (public) IP — use when behind a VPN/mesh
+default_ip: "external"
+
+# Pre-select the connection IP (default behavior if omitted)
+default_ip: "connection"
+```
+
+The `selected_ip` form value is validated server-side with `net.ParseIP()`. If it's not a valid IP, the server falls back to the connection IP.
 
 ### Data Sensitivity
 - **CSV file contains user IP addresses** - treat this as sensitive personal data. Set restrictive file permissions (e.g., `chmod 600`).
@@ -128,6 +167,9 @@ Without this configuration, the `X-Forwarded-For` header from clients can be eas
 - This program only captures IPs - an external system is required to read and process the CSV file for any meaningful action
 
 ## Troubleshooting
+
+### Getting "invalid csrf token"
+You are likely accessing the service over plain HTTP with `tls: true` in the config (or it was previously hardcoded). Set `tls: false` or remove the `tls` key entirely. The `Secure` flag on the CSRF cookie prevents browsers from sending it over non-HTTPS connections.
 
 ### Config file not found
 Ensure `ipss_config.yaml` exists in one of the configured locations:

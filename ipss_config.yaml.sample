@@ -20,8 +20,34 @@ csv: /path/to/output.csv
 #   require_number: true
 #   require_symbol: true
 
+# Set to true when serving behind HTTPS (direct TLS or reverse proxy).
+# Marks the CSRF cookie as Secure so the browser only sends it over HTTPS.
+# Default: false (required for plain HTTP to work).
+# tls: true
+
+# Optional: IP address to bind to (default: all interfaces)
+# bind_address: "127.0.0.1"
+
+# Optional: port to listen on (default: 1180)
+# port: 1180
+
 # Optional: trusted reverse proxy CIDRs for X-Forwarded-For extraction.
 # If omitted, IP is taken directly from the network connection.
+# Common values:
+#   Cloudflare:  see https://www.cloudflare.com/ips/
+#   Tailscale:   100.64.0.0/10
+#   Private net: 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
 # trusted_proxies:
 #   - "10.0.0.0/8"
-#   - "172.16.0.0/12"
+
+# Optional: header name to extract client IP from (e.g., "CF-Connecting-IP",
+# "True-Client-IP"). Requires trusted_proxies to be set. If omitted, uses
+# X-Forwarded-For when trusted_proxies is configured.
+# ip_header: "CF-Connecting-IP"
+
+# Which IP to pre-select when connection and external IPs differ.
+#   "connection" (default) — IP as seen by the server
+#   "external" — public IP fetched client-side from api.ipify.org
+# Use "external" when users connect through a VPN/mesh (e.g., ZeroTier) and
+# you need their real public IP for firewall rules.
+# default_ip: "external"
